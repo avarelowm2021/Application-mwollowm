@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liste Consultable avec Suivi Dynamique du Cumulative Balance</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f0f0f0;
+      color: #333;
+      transition: background-color 0.3s, color 0.3s;
+      background-image: none; /* Par défaut, pas d'image de fond */
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      margin-bottom: 20px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      transition: background-color 0.3s, color 0.3s;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #item-list, #special-data-list {
+      list-style-type: none;
+      padding: 0;
+    }
+    #item-list li, #special-data-list li {
+      background-color: #fff;
+      margin-bottom: 10px;
+      padding: 15px;
+      border-radius: 4px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chart-container {
+      background-color: #fff;
+      padding: 15px;
+      border-radius: 4px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    #cumulative-balance-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4CAF50;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .euro-value, .sales-value, .expenses-value {
+      font-size: 24px;
+      font-weight: bold;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .euro-value {
+      color: #007BFF;
+    }
+    .sales-value {
+      color: #28a745;
+    }
+    .expenses-value {
+      color: #dc3545;
+    }
+    .highlight {
+      background-color: yellow;
+    }
+    .sell-button {
+      background-color: #007BFF;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .sell-button:hover {
+      background-color: #0056b3;
+    }
+    /* Mode nuit */
+    body.night-mode {
+      background-color: #121212;
+      color: #ffffff;
+    }
+    body.night-mode input, body.night-mode button {
+      background-color: #333;
+      color: #ffffff;
+      border-color: #555;
+    }
+    body.night-mode #item-list li, body.night-mode #special-data-list li {
+      background-color: #333;
+      color: #ffffff;
+      box-shadow: 0 2px 5px rgba(255, 255, 255, 0.1);
+    }
+    body.night-mode .chart-container {
+      background-color: #333;
+      color: #ffffff;
+    }
+    body.night-mode .sell-button {
+      background-color: #28a745;
+    }
+    body.night-mode .sell-button:hover {
+      background-color: #218838;
+    }
+    body.night-mode #cumulative-balance-value {
+      color: #4CAF50;
+    }
+    body.night-mode .euro-value {
+      color: #00BFFF;
+    }
+    body.night-mode .sales-value {
+      color: #66BB6A;
+    }
+    body.night-mode .expenses-value {
+      color: #ff6f61;
+    }
+  </style>
+</head>
+<body>
+  <h1>Liste Consultable avec Suivi Dynamique du Cumulative Balance</h1>
+  <button id="toggle-mode" style="background-color: #555; color: white;">Activer le mode nuit</button>
+  <button id="clear-data" style="background-color: #E74C3C; color: white;">Effacer toutes les données</button>
+  <input type="text" id="background-url" placeholder="Entrez l'URL de l'image de fond...">
+  <button id="set-background" style="background-color: #007BFF; color: white;">Appliquer l'image de fond</button>
+  <div id="special-data">
+    <h2>Données Spéciales</h2>
+    <ul id="special-data-list"></ul>
+  </div>
+  <div class="chart-container">
+    <h2>Suivi du Cumulative Balance, des Ventes et des Dépenses</h2>
+    <div id="cumulative-balance-value"></div>
+    <canvas id="cumulative-balance-chart"></canvas>
+  </div>
+  <div id="euro-value" class="euro-value">Valeur en euros : 0 €</div>
+  <div id="sales-value" class="sales-value">Ventes accumulées en euros : 0 €</div>
+  <div id="expenses-value" class="expenses-value">Dépenses accumulées en euros : 0 €</div>
+  <input type="number" id="conversion-rate" placeholder="Saisissez le taux de conversion (€)">
+  <div id="error-message" class="duplicate">Doublon détecté ! Ce token existe déjà.</div>
+  <input type="text" id="add-input" placeholder="Ajouter un token JSON...">
+  <button id="add-button">Ajouter</button>
+  <input type="text" id="search-input" placeholder="Rechercher des données...">
+  <ul id="item-list"></ul>
+
+  <script>
+    // Charger les données depuis le localStorage
+    let items = JSON.parse(localStorage.getItem('items')) || [];
+    let specialData = JSON.parse(localStorage.getItem('specialData')) || {
+      'balance': 0,
+      'cumul_mwol_lowm': [],
+      'cumulative_balance': 0.0
+    };
+    let cumulativeBalanceHistory = JSON.parse(localStorage.getItem('cumulativeBalanceHistory')) || [specialData.cumulative_balance];
+    let salesHistory = JSON.parse(localStorage.getItem('salesHistory')) || [0]; // Historique des ventes accumulées en euros
+    let expensesHistory = JSON.parse(localStorage.getItem('expensesHistory')) || [0]; // Historique des dépenses accumulées en euros
+
+    const itemList = document.getElementById('item-list');
+    const specialDataList = document.getElementById('special-data-list');
+    const addInput = document.getElementById('add-input');
+    const addButton = document.getElementById('add-button');
+    const searchInput = document.getElementById('search-input');
+    const cumulativeBalanceCtx = document.getElementById('cumulative-balance-chart').getContext('2d');
+    const cumulativeBalanceValue = document.getElementById('cumulative-balance-value');
+    const euroValueDisplay = document.getElementById('euro-value');
+    const salesValueDisplay = document.getElementById('sales-value');
+    const expensesValueDisplay = document.getElementById('expenses-value');
+    const conversionRateInput = document.getElementById('conversion-rate');
+    const errorMessage = document.getElementById('error-message');
+    const clearDataButton = document.getElementById('clear-data');
+    const toggleModeButton = document.getElementById('toggle-mode');
+    const backgroundUrlInput = document.getElementById('background-url');
+    const setBackgroundButton = document.getElementById('set-background');
+    let cumulativeBalanceChart;
+
+    // Mode nuit
+    toggleModeButton.addEventListener('click', () => {
+      document.body.classList.toggle('night-mode');
+      toggleModeButton.textContent = document.body.classList.contains('night-mode') ? 'Désactiver le mode nuit' : 'Activer le mode nuit';
+    });
+
+    // Appliquer l'image de fond
+    setBackgroundButton.addEventListener('click', () => {
+      const url = backgroundUrlInput.value.trim();
+      if (url) {
+        document.body.style.backgroundImage = `url('${url}')`;
+      } else {
+        document.body.style.backgroundImage = 'none';
+      }
+    });
+
+    function displayItems(items) {
+      itemList.innerHTML = '';
+      items.forEach((item, index) => {
+        const li = document.createElement('li');
+        li.textContent = JSON.stringify(item);
+
+        const sellButton = document.createElement('button');
+        sellButton.textContent = 'Vendre';
+        sellButton.className = 'sell-button';
+        sellButton.onclick = () => sellItem(index);
+
+        li.appendChild(sellButton);
+        itemList.appendChild(li);
+      });
+    }
+
+    function displaySpecialData() {
+      specialDataList.innerHTML = '';
+      for (const [key, value] of Object.entries(specialData)) {
+        const li = document.createElement('li');
+        if (Array.isArray(value)) {
+          const uniqueValues = [...new Set(value)];
+          const displayValue = value.map(v => {
+            return uniqueValues.indexOf(v) !== value.indexOf(v) ? `<span class="highlight">${v}</span>` : v;
+          }).join(', ');
+          li.innerHTML = `${key}: ${displayValue}`;
+        } else {
+          li.textContent = `${key}: ${value}`;
+        }
+        specialDataList.appendChild(li);
+      }
+    }
+
+    function updateCumulativeBalanceChart() {
+      const labels = Array.from({length: Math.max(cumulativeBalanceHistory.length, salesHistory.length, expensesHistory.length)}, (_, i) => `Étape ${i+1}`);
+
+      if (cumulativeBalanceChart) {
+        cumulativeBalanceChart.destroy();
+      }
+
+      cumulativeBalanceChart = new Chart(cumulativeBalanceCtx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Cumulative Balance',
+              data: cumulativeBalanceHistory,
+              borderColor: 'rgba(255, 99, 132, 1)',
+              backgroundColor: 'rgba(255, 99, 132, 0.2)',
+              borderWidth: 2,
+              fill: true
+            },
+            {
+              label: 'Ventes accumulées en euros',
+              data: salesHistory,
+              borderColor: 'rgba(40, 167, 69, 1)', /* Vert */
+              backgroundColor: 'rgba(40, 167, 69, 0.2)',
+              borderWidth: 2,
+              fill: false
+            },
+            {
+              label: 'Dépenses accumulées en euros',
+              data: expensesHistory,
+              borderColor: 'rgba(220, 53, 69, 1)', /* Rouge */
+              backgroundColor: 'rgba(220, 53, 69, 0.2)',
+              borderWidth: 2,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Évolution de la Balance Cumulative, des Ventes et des Dépenses'
+            }
+          }
+        }
+      });
+
+      cumulativeBalanceValue.textContent = `Cumulative Balance actuelle : ${parseFloat(specialData.cumulative_balance).toFixed(8)}`;
+      updateEuroValue();
+      updateSalesValue();
+      updateExpensesValue();
+    }
+
+    function updateEuroValue() {
+      const conversionRate = parseFloat(conversionRateInput.value);
+      if (!isNaN(conversionRate) && conversionRate > 0) {
+        const euroValue = (specialData.cumulative_balance * conversionRate).toFixed(2);
+        euroValueDisplay.textContent = `Valeur en euros : ${euroValue} €`;
+      } else {
+        euroValueDisplay.textContent = 'Valeur en euros : 0 €';
+      }
+    }
+
+    function updateSalesValue() {
+      const totalSales = salesHistory[salesHistory.length - 1] || 0;
+      salesValueDisplay.textContent = `Ventes accumulées en euros : ${totalSales.toFixed(2)} €`;
+    }
+
+    function updateExpensesValue() {
+      const totalExpenses = expensesHistory[expensesHistory.length - 1] || 0;
+      expensesValueDisplay.textContent = `Dépenses accumulées en euros : ${totalExpenses.toFixed(2)} €`;
+    }
+
+    conversionRateInput.addEventListener('input', updateEuroValue);
+
+    function sellItem(index) {
+      const itemToSell = items[index];
+      const conversionRate = parseFloat(conversionRateInput.value);
+
+      if (itemToSell.cumulative_balance) {
+        specialData.cumulative_balance = (parseFloat(specialData.cumulative_balance) - parseFloat(itemToSell.cumulative_balance)).toFixed(8);
+        cumulativeBalanceHistory.push(parseFloat(specialData.cumulative_balance));
+
+        if (!isNaN(conversionRate) && conversionRate > 0) {
+          const saleValue = (parseFloat(itemToSell.cumulative_balance) * conversionRate).toFixed(2);
+          const lastSaleValue = salesHistory[salesHistory.length - 1] || 0;
+          const newSaleValue = parseFloat(lastSaleValue) + parseFloat(saleValue);
+          salesHistory.push(newSaleValue); // Accumuler les ventes
+          updateSalesValue(); // Mettre à jour l'affichage des ventes accumulées
+        } else {
+          const lastSaleValue = salesHistory[salesHistory.length - 1] || 0;
+          salesHistory.push(lastSaleValue);
+        }
+      }
+
+      specialData.balance -= 1;
+      specialData.cumul_mwol_lowm = specialData.cumul_mwol_lowm.filter((item) => !itemToSell.cumul_mwol_lowm.includes(item));
+
+      items.splice(index, 1);
+
+      saveData();
+      displayItems(items);
+      displaySpecialData();
+      updateCumulativeBalanceChart();
+    }
+
+    function addItem() {
+      const newItem = addInput.value.trim();
+      if (newItem) {
+        try {
+          const token = JSON.parse(newItem);
+
+          const isDuplicate = items.some(item => JSON.stringify(item) === JSON.stringify(token));
+
+          if (isDuplicate) {
+            errorMessage.style.display = "block";
+          } else {
+            errorMessage.style.display = "none";
+
+            if (token.cumulative_balance) {
+              items.push(token);
+              addInput.value = '';
+              displayItems(items);
+
+              specialData.balance += 1;
+              specialData.cumul_mwol_lowm.push(...token.cumul_mwol_lowm);
+              specialData.cumulative_balance = (parseFloat(specialData.cumulative_balance) + parseFloat(token.cumulative_balance)).toFixed(8);
+              cumulativeBalanceHistory.push(parseFloat(specialData.cumulative_balance));
+
+              // Calcul des dépenses
+              const conversionRate = parseFloat(conversionRateInput.value);
+              if (!isNaN(conversionRate) && conversionRate > 0) {
+                const expenseValue = (parseFloat(token.cumulative_balance) * conversionRate).toFixed(2);
+                const lastExpenseValue = expensesHistory[expensesHistory.length - 1] || 0;
+                const newExpenseValue = parseFloat(lastExpenseValue) + parseFloat(expenseValue);
+                expensesHistory.push(newExpenseValue); // Accumuler les dépenses
+                updateExpensesValue(); // Mettre à jour l'affichage des dépenses accumulées
+              }
+
+              saveData();
+
+              displaySpecialData();
+              updateCumulativeBalanceChart();
+            } else {
+              alert("Le token JSON doit contenir un champ 'cumulative_balance'.");
+            }
+          }
+        } catch (error) {
+          alert("Le format JSON est invalide.");
+        }
+      }
+    }
+
+    function saveData() {
+      localStorage.setItem('items', JSON.stringify(items));
+      localStorage.setItem('specialData', JSON.stringify(specialData));
+      localStorage.setItem('cumulativeBalanceHistory', JSON.stringify(cumulativeBalanceHistory));
+      localStorage.setItem('salesHistory', JSON.stringify(salesHistory));
+      localStorage.setItem('expensesHistory', JSON.stringify(expensesHistory));
+    }
+
+    clearDataButton.addEventListener('click', () => {
+      if (confirm("Voulez-vous vraiment effacer toutes les données ?")) {
+        localStorage.removeItem('items');
+        localStorage.removeItem('specialData');
+        localStorage.removeItem('cumulativeBalanceHistory');
+        localStorage.removeItem('salesHistory');
+        localStorage.removeItem('expensesHistory');
+        
+        items = [];
+        specialData = {
+          'balance': 0,
+          'cumul_mwol_lowm': [],
+          'cumulative_balance': 0.0
+        };
+        cumulativeBalanceHistory = [specialData.cumulative_balance];
+        salesHistory = [0];
+        expensesHistory = [0];
+
+        displayItems(items);
+        displaySpecialData();
+        updateCumulativeBalanceChart();
+      }
+    });
+
+    function searchData() {
+      const searchTerm = searchInput.value.toLowerCase();
+      const filteredItems = items.filter(item => JSON.stringify(item).toLowerCase().includes(searchTerm));
+      displayItems(filteredItems);
+
+      specialDataList.querySelectorAll('li').forEach(li => {
+        const text = li.textContent.toLowerCase();
+        li.classList.toggle('highlight', text.includes(searchTerm));
+      });
+    }
+
+    displayItems(items);
+    displaySpecialData();
+    updateCumulativeBalanceChart();
+
+    addButton.addEventListener('click', addItem);
+    addInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        addItem();
+      }
+    });
+    searchInput.addEventListener('input', searchData);
+
+  </script>
+</body>
+</html>
